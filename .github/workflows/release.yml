@@ -9,7 +9,7 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            args: "--no-bundle"
+            args: ""
           - os: macos-latest
             args: "--bundles dmg"
           - os: ubuntu-22.04
@@ -24,19 +24,27 @@ jobs:
       - name: Install Linux dependencies
         if: matrix.os == 'ubuntu-22.04'
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-      - uses: tauri-apps/tauri-action@v1
-        env:
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: GitPulse ${{ github.ref_name }}
-          releaseBody: Automated GitPulse release.
-          args: ${{ matrix.args }}
-      - name: Upload portable exe
+      - name: Build and publish portable Windows exe
         if: matrix.os == 'windows-latest'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cp src-tauri/target/release/gitpulse.exe GitPulse_${{ github.ref_name }}_x64-portable.exe
-          gh release upload ${{ github.ref_name }} GitPulse_${{ github.ref_name }}_x64-portable.exe --clobber
+          npx tauri build --no-bundle
+          cp src-tauri/target/release/gitpulse.exe "GitPulse_${{ github.ref_name }}_x64-portable.exe"
+          ok=0
+          for i in 1 2 3 4 5; do
+            gh release view "${{ github.ref_name }}" >/dev/null 2>&1 || gh release create "${{ github.ref_name }}" --title "GitPulse ${{ github.ref_name }}" --notes "Automated GitPulse release." || true
+            if gh release upload "${{ github.ref_name }}" "GitPulse_${{ github.ref_name }}_x64-portable.exe" --clobber; then ok=1; break; fi
+            sleep 20
+          done
+          test "$ok" = 1
+      - uses: tauri-apps/tauri-action@v1
+        if: matrix.os != 'windows-latest'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: GitPulse ${{ github.ref_name }}
+          releaseBody: Automated GitPulse release.
+          args: ${{ matrix.args }}
