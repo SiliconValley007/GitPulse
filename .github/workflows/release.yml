@@ -9,7 +9,7 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            args: "--bundles nsis"
+            args: "--no-bundle"
           - os: macos-latest
             args: "--bundles dmg"
           - os: ubuntu-22.04
@@ -32,3 +32,11 @@ jobs:
           releaseName: GitPulse ${{ github.ref_name }}
           releaseBody: Automated GitPulse release.
           args: ${{ matrix.args }}
+      - name: Upload portable exe
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp src-tauri/target/release/gitpulse.exe GitPulse_${{ github.ref_name }}_x64-portable.exe
+          gh release upload ${{ github.ref_name }} GitPulse_${{ github.ref_name }}_x64-portable.exe --clobber
