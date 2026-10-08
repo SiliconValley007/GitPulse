@@ -1264,12 +1264,10 @@ function App() {
                       setSec((o) => (o === k ? null : k));
                       setTimeout(
                         () =>
-                          document
-                            .getElementById("wt-" + k)
-                            ?.scrollIntoView({
-                              block: "nearest",
-                              behavior: "smooth",
-                            }),
+                          document.getElementById("wt-" + k)?.scrollIntoView({
+                            block: "nearest",
+                            behavior: "smooth",
+                          }),
                         60,
                       );
                     }}

@@ -654,7 +654,8 @@ fn make_watcher(
     targets: &[PathBuf]
 ) -> Option<RecommendedWatcher> {
     let tg: Vec<PathBuf> = targets.to_vec();
-    let mut w = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+    let mut w = notify
+        ::recommended_watcher(move |res: notify::Result<notify::Event>| {
             let Ok(e) = res else {
                 return;
             };
@@ -665,15 +666,22 @@ fn make_watcher(
             let k = known.lock().unwrap();
             for p in &e.paths {
                 if let Some(a) = p.ancestors().find(|a| k.contains(*a)) {
-                if p.strip_prefix(a).map_or(false, skip) {
+                    if p.strip_prefix(a).map_or(false, skip) {
+                        continue;
+                    }
+                    let _ = tx.send(Ev::Repo(a.to_path_buf()));
                     continue;
                 }
-                let _ = tx.send(Ev::Repo(a.to_path_buf()));
-                continue;
-            }
-            if skip(tg.iter().find_map(|t| p.strip_prefix(t).ok()).unwrap_or(p)) {
-                continue;
-            }
+                if
+                    skip(
+                        tg
+                            .iter()
+                            .find_map(|t| p.strip_prefix(t).ok())
+                            .unwrap_or(p)
+                    )
+                {
+                    continue;
+                }
                 if e.kind.is_create() || nameev {
                     if p.file_name().map_or(false, |n| n == ".git") {
                         if let Some(d) = p.parent() {
