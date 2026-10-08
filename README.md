@@ -38,7 +38,7 @@ cargo test --manifest-path src-tauri/Cargo.toml   # needs git on PATH
 npm run tauri build
 ```
 
-Tagging a release (`git tag v1.0.0 && git push origin v1.0.0`) builds Windows (NSIS), macOS (DMG) and Linux (AppImage) bundles via GitHub Actions. CI runs type-check, frontend build and `cargo test` on every push.
+Pushing a version tag (for example `git tag v1.0.1 && git push origin v1.0.1`) runs the **Release** workflow and publishes a portable Windows `.exe` (no installer), a macOS `.dmg` (Apple Silicon) and a Linux `.AppImage` on the GitHub Releases page. CI runs type-check, frontend build and `cargo test` on every push.
 
 ## Project layout
 
@@ -50,15 +50,12 @@ Tagging a release (`git tag v1.0.0 && git push origin v1.0.0`) builds Windows (N
 
 The cache lives in the OS app-data folder for `com.gitpulse.desktop` (on Windows `%APPDATA%\com.gitpulse.desktop\cache.json`). Delete it to reset. Repositories on drives that are currently disconnected stay in the list until the drive returns.
 
-## Notes for users
+## Notes
 
-• The installers are unsigned. Windows SmartScreen shows "Unknown publisher"; click More info → Run anyway.
-• On macOS, right-click the app and choose Open the first time.
-
-**Note**: before moving this project, delete src-tauri\target and node_modules, since both are regenerated anyway. This also keeps the folder small. Both are already in .gitignore.
+- Builds are unsigned: Windows SmartScreen shows "Unknown publisher" (click **More info → Run anyway**); on macOS right-click the app and choose **Open** the first time.
+- Code signing and auto-update are not included (they need your own certificates/keys).
+- If you move the project folder, delete `src-tauri/target` and `node_modules` first (both are regenerated).
 
 ## License
 
 MIT
-
-Not included: code signing and auto-update (they need your own certificates/keys).

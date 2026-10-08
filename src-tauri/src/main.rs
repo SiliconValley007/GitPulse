@@ -14,7 +14,6 @@ use notify::{ EventKind, RecommendedWatcher, RecursiveMode, Watcher };
 use serde::{ Deserialize, Serialize };
 use std::{
     collections::{ HashMap, HashSet },
-    env,
     path::{ Path, PathBuf },
     process::Command,
     sync::{ atomic::{ AtomicBool, AtomicU64, AtomicUsize, Ordering }, mpsc, Arc, Mutex },
@@ -107,6 +106,7 @@ struct Store {
     known: Arc<Mutex<HashSet<PathBuf>>>,
     repos: Arc<Mutex<HashMap<String, RepoInfo>>>,
     meta: Arc<Mutex<(Vec<String>, i64)>>,
+    save_lock: Arc<Mutex<()>>,
 }
 #[derive(Serialize)]
 struct Startup {
@@ -152,6 +152,7 @@ impl Store {
             known: Arc::new(Mutex::new(known)),
             repos: Arc::new(Mutex::new(repos)),
             meta: Arc::new(Mutex::new((c.roots, c.last_scan))),
+            save_lock: Arc::new(Mutex::new(())),
         }
     }
     fn all(&self) -> Vec<RepoInfo> {
@@ -160,6 +161,7 @@ impl Store {
         v
     }
     fn save(&self) {
+        let _guard = self.save_lock.lock().unwrap();
         let (roots, last_scan) = self.meta.lock().unwrap().clone();
         let c = Cache {
             roots,
@@ -225,7 +227,7 @@ fn iso_roots() -> Vec<PathBuf> {
             }
         }
         if roots.is_empty() {
-            if let Ok(h) = env::var("USERPROFILE") {
+            if let Ok(h) = std::env::var("USERPROFILE") {
                 roots.push(PathBuf::from(h));
             }
         }
@@ -651,8 +653,8 @@ fn make_watcher(
     tx: mpsc::Sender<Ev>,
     targets: &[PathBuf]
 ) -> Option<RecommendedWatcher> {
-    let mut w = notify
-        ::recommended_watcher(move |res: notify::Result<notify::Event>| {
+    let tg: Vec<PathBuf> = targets.to_vec();
+    let mut w = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
             let Ok(e) = res else {
                 return;
             };
@@ -662,13 +664,16 @@ fn make_watcher(
             let nameev = matches!(e.kind, EventKind::Modify(notify::event::ModifyKind::Name(_)));
             let k = known.lock().unwrap();
             for p in &e.paths {
-                if skip(p) {
-                    continue;
-                }
                 if let Some(a) = p.ancestors().find(|a| k.contains(*a)) {
-                    let _ = tx.send(Ev::Repo(a.to_path_buf()));
+                if p.strip_prefix(a).map_or(false, skip) {
                     continue;
                 }
+                let _ = tx.send(Ev::Repo(a.to_path_buf()));
+                continue;
+            }
+            if skip(tg.iter().find_map(|t| p.strip_prefix(t).ok()).unwrap_or(p)) {
+                continue;
+            }
                 if e.kind.is_create() || nameev {
                     if p.file_name().map_or(false, |n| n == ".git") {
                         if let Some(d) = p.parent() {
@@ -704,7 +709,7 @@ fn apply(st: &Store, ev: Ev) -> Option<Out> {
             }
         }
         Ev::New(p) => {
-            if st.known.lock().unwrap().contains(&p) || skip(&p) {
+            if st.known.lock().unwrap().contains(&p) {
                 return None;
             }
             let mut i = git_info(&p);
@@ -945,7 +950,8 @@ fn open_terminal(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         Command::new("cmd")
-            .args(["/c", "start", "", "/D", &path, "cmd"])
+            .args(["/c", "start", "", "cmd"])
+            .current_dir(&p)
             .spawn()
             .map(|_| ())
             .map_err(err)
@@ -1069,6 +1075,49 @@ mod tests {
         assert_eq!(j.branch, "dev");
         assert!(j.last_commit.is_none());
         assert!(commit_page(&e, 0, 5).unwrap().is_empty());
+    }
+    #[test]
+    fn live_in_ignored_parent() {
+        let root = std::env::temp_dir().join("gp_live2");
+        let _ = std::fs::remove_dir_all(&root);
+        let a = root.join("target").join("venv").join("r");
+        mk(&a);
+        let st = Store::load(root.join("c.json"));
+        st.replace(&[git_info(&a).unwrap()], &[root.to_string_lossy().into_owned()]);
+        let (tx, rx) = mpsc::channel();
+        let (otx, orx) = mpsc::channel();
+        let _w = make_watcher(st.known.clone(), tx, &[root.clone()]).unwrap();
+        spawn_worker(st.clone(), rx, move |o| {
+            if let Out::Upd(i) = o {
+                let _ = otx.send(i.name);
+            }
+        });
+        std::thread::sleep(Duration::from_millis(500));
+        std::fs::write(a.join("n.txt"), "x").unwrap();
+        assert_eq!(orx.recv_timeout(Duration::from_secs(5)).unwrap(), "r");
+    }
+    #[test]
+    fn concurrent_saves() {
+        let root = std::env::temp_dir().join("gp_save");
+        let _ = std::fs::remove_dir_all(&root);
+        let a = root.join("a");
+        mk(&a);
+        let st = Store::load(root.join("cache.json"));
+        st.replace(&[git_info(&a).unwrap()], &[root.to_string_lossy().into_owned()]);
+        let hs: Vec<_> = (0..8)
+            .map(|_| {
+                let s = st.clone();
+                std::thread::spawn(move || {
+                    for _ in 0..40 {
+                        s.save();
+                    }
+                })
+            })
+            .collect();
+        for h in hs {
+            h.join().unwrap();
+        }
+        assert_eq!(Store::load(root.join("cache.json")).all().len(), 1);
     }
     #[test]
     fn live() {

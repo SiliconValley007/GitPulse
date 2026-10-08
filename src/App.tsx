@@ -456,6 +456,14 @@ function App() {
   const [mw, setMw] = useState(1000);
   const mainRef = useRef<HTMLElement>(null);
   const sbwRef = useRef(sbw);
+  const [lh, setLh] = useState(1400);
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const o = new ResizeObserver(() => setLh(el.clientHeight));
+    o.observe(el);
+    return () => o.disconnect();
+  }, []);
   useEffect(() => {
     const f = () => setVw(window.innerWidth);
     window.addEventListener("resize", f);
@@ -511,7 +519,7 @@ function App() {
   const [ignoreText, setIgnoreText] = useState("");
   const filterRef = useRef<HTMLInputElement>(null);
   const rowH = 66,
-    viewport = 1400,
+    viewport = Math.max(lh, 300),
     overscan = 8;
   reposRef.current = repos;
 
@@ -657,7 +665,12 @@ function App() {
       .split(/\r?\n|,/)
       .map((x) => x.trim())
       .filter(Boolean);
-    scan(c.length ? c : sel.length ? sel : drives);
+    const t = c.length ? c : sel;
+    if (!t.length && drives.length) {
+      setError("Select at least one drive or enter a folder to scan.");
+      return;
+    }
+    scan(t);
   };
   const cancel = () => {
     call("cancel_scan").catch(() => {});
